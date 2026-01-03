@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <stdexcept>
 
 namespace ob
 {
@@ -13,32 +12,32 @@ namespace ob
         Sell
     };
 
+    using PriceTicks = std::int64_t;
+    using Qty = std::int64_t;
+
     struct Order
     {
         OrderId id {};
         Side side { Side::Buy };
-        std::int64_t price_ticks { 0 };
-        std::int64_t qty { 0 };
-        std::uint64_t seq { 0 }; // Monotonic sequence for time-priority
-
-        void validate_or_throw() const
-        {
-            if (id == 0)
-            {
-                throw std::invalid_argument("Order id must be non-zero");
-            }
-            if (price_ticks <= 0)
-            {
-                throw std::invalid_argument("Order price_ticks must be > 0");
-            }
-            if (qty <= 0)
-            {
-                throw std::invalid_argument("Order qty must be > 0");
-            }
-            if (seq == 0)
-            {
-                throw std::invalid_argument("Order seq must be non-zero");
-            }
-        }
+        PriceTicks price_ticks { 0 };
+        Qty qty { 0 };
+        std::uint64_t seq { 0 }; 
     };
+
+    inline bool is_valid_input(OrderId id, PriceTicks price_ticks, Qty qty)
+    {
+        if (id == 0)
+        {
+            return false;
+        }
+        if (price_ticks <= 0)
+        {
+            return false;
+        }
+        if (qty <= 0)
+        {
+            return false;
+        }
+        return true;
+    }
 }

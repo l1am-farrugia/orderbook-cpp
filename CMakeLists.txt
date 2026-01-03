@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(orderbook
-    src/order.cpp
     src/order_book.cpp
 )
 
@@ -18,7 +17,6 @@ add_executable(ob_sim
 
 target_link_libraries(ob_sim PRIVATE orderbook)
 
-# ---- Tests (GoogleTest via submodule) ----
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 
@@ -33,4 +31,3 @@ target_link_libraries(ob_tests PRIVATE orderbook GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(ob_tests)
-

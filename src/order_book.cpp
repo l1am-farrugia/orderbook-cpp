@@ -4,29 +4,58 @@
 
 namespace ob
 {
-    bool OrderBook::add_limit(const Order& order)
+    AddResult OrderBook::add_limit(OrderId id, Side side, PriceTicks price_ticks, Qty qty)
     {
-        order.validate_or_throw();
+        if (!is_valid_input(id, price_ticks, qty))
+        {
+            return AddResult::Invalid;
+        }
 
-        //  invariant
-        const bool inserted = live_ids_.insert(order.id).second;
-        return inserted;
+        const auto it = orders_.find(id);
+        if (it != orders_.end())
+        {
+            return AddResult::DuplicateId;
+        }
+
+        Order o {};
+        o.id = id;
+        o.side = side;
+        o.price_ticks = price_ticks;
+        o.qty = qty;
+        o.seq = next_seq_;
+
+        ++next_seq_;
+        const auto inserted = orders_.emplace(id, o).second;
+
+        // Invariant: we already checked for duplicates.
+        assert(inserted);
+        return AddResult::Accepted;
     }
 
-    bool OrderBook::cancel(OrderId id)
+    CancelResult OrderBook::cancel(OrderId id)
     {
         if (id == 0)
         {
-            return false;
+            return CancelResult::Invalid;
         }
 
-        const std::size_t erased = live_ids_.erase(id);
-        assert(erased <= 1);
-        return erased == 1;
+        const std::size_t erased = orders_.erase(id);
+        if (erased == 1)
+        {
+            return CancelResult::Cancelled;
+        }
+
+        assert(erased == 0);
+        return CancelResult::NotFound;
     }
 
     std::size_t OrderBook::live_order_count() const
     {
-        return live_ids_.size();
+        return orders_.size();
+    }
+
+    bool OrderBook::has_order(OrderId id) const
+    {
+        return orders_.find(id) != orders_.end();
     }
 }
