@@ -1,46 +1,81 @@
-#include "order_book.h"
+#include "engine.h"
 
 #include <gtest/gtest.h>
 
-TEST(OrderBook, AcceptsValidOrder)
+TEST(Engine, AssignsMonotonicSeq)
 {
-    ob::OrderBook book;
+    // verify sequencing is owned by the book not the caller
+    ob::Engine eng;
 
-    const auto r = book.add_limit(1, ob::Side::Buy, 10'000, 100);
-    EXPECT_EQ(r, ob::AddResult::Accepted);
-    EXPECT_EQ(book.live_order_count(), 1u);
-    EXPECT_TRUE(book.has_order(1));
+    const auto e1 = eng.apply(ob::Command::add_limit(1, ob::Side::Buy, 10'000, 100));
+    const auto e2 = eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 10'000, 100));
+
+    ASSERT_EQ(e1.size(), 1u);
+    ASSERT_EQ(e2.size(), 1u);
+
+    EXPECT_EQ(e1[0].type, ob::EventType::OrderAccepted);
+    EXPECT_EQ(e2[0].type, ob::EventType::OrderAccepted);
+
+    EXPECT_EQ(e1[0].seq, 1u);
+    EXPECT_EQ(e2[0].seq, 2u);
 }
 
-TEST(OrderBook, RejectsDuplicateId)
+TEST(Engine, RejectsDuplicateId)
 {
-    ob::OrderBook book;
+    // duplicate ids should be rejected consistently
+    ob::Engine eng;
 
-    EXPECT_EQ(book.add_limit(1, ob::Side::Buy, 10'000, 100), ob::AddResult::Accepted);
-    EXPECT_EQ(book.add_limit(1, ob::Side::Sell, 10'001, 50), ob::AddResult::DuplicateId);
-    EXPECT_EQ(book.live_order_count(), 1u);
+    const auto e1 = eng.apply(ob::Command::add_limit(1, ob::Side::Buy, 10'000, 100));
+    const auto e2 = eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 10'001, 50));
+
+    ASSERT_EQ(e1.size(), 1u);
+    ASSERT_EQ(e2.size(), 1u);
+
+    EXPECT_EQ(e1[0].type, ob::EventType::OrderAccepted);
+    EXPECT_EQ(e2[0].type, ob::EventType::OrderRejected);
+    EXPECT_EQ(e2[0].reason, "duplicate_id");
 }
 
-TEST(OrderBook, RejectsInvalidInputs)
+TEST(Engine, CancelReturnsOriginalSeq)
 {
-    ob::OrderBook book;
+    // cancel should report the original seq from acceptance
+    ob::Engine eng;
 
-    EXPECT_EQ(book.add_limit(0, ob::Side::Buy, 10'000, 100), ob::AddResult::Invalid);
-    EXPECT_EQ(book.add_limit(1, ob::Side::Buy, 0, 100), ob::AddResult::Invalid);
-    EXPECT_EQ(book.add_limit(1, ob::Side::Buy, 10'000, 0), ob::AddResult::Invalid);
+    const auto add = eng.apply(ob::Command::add_limit(7, ob::Side::Buy, 10'000, 100));
+    ASSERT_EQ(add.size(), 1u);
+    ASSERT_EQ(add[0].type, ob::EventType::OrderAccepted);
 
-    EXPECT_EQ(book.live_order_count(), 0u);
+    const std::uint64_t seq = add[0].seq;
+
+    const auto c1 = eng.apply(ob::Command::cancel(7));
+    ASSERT_EQ(c1.size(), 1u);
+    EXPECT_EQ(c1[0].type, ob::EventType::OrderCancelled);
+    EXPECT_EQ(c1[0].seq, seq);
+
+    const auto c2 = eng.apply(ob::Command::cancel(7));
+    ASSERT_EQ(c2.size(), 1u);
+    EXPECT_EQ(c2[0].type, ob::EventType::CancelRejected);
+    EXPECT_EQ(c2[0].reason, "not_found");
 }
 
-TEST(OrderBook, CancelSemantics)
+TEST(Engine, RejectsInvalidInputs)
 {
-    ob::OrderBook book;
+    // invalid inputs should reject with a stable reason
+    ob::Engine eng;
 
-    EXPECT_EQ(book.cancel(1), ob::CancelResult::NotFound);
-    EXPECT_EQ(book.cancel(0), ob::CancelResult::Invalid);
+    const auto e1 = eng.apply(ob::Command::add_limit(0, ob::Side::Buy, 10'000, 100));
+    const auto e2 = eng.apply(ob::Command::add_limit(1, ob::Side::Buy, 0, 100));
+    const auto e3 = eng.apply(ob::Command::add_limit(1, ob::Side::Buy, 10'000, 0));
 
-    EXPECT_EQ(book.add_limit(1, ob::Side::Buy, 10'000, 100), ob::AddResult::Accepted);
-    EXPECT_EQ(book.cancel(1), ob::CancelResult::Cancelled);
-    EXPECT_EQ(book.cancel(1), ob::CancelResult::NotFound);
-    EXPECT_EQ(book.live_order_count(), 0u);
+    ASSERT_EQ(e1.size(), 1u);
+    ASSERT_EQ(e2.size(), 1u);
+    ASSERT_EQ(e3.size(), 1u);
+
+    EXPECT_EQ(e1[0].type, ob::EventType::OrderRejected);
+    EXPECT_EQ(e2[0].type, ob::EventType::OrderRejected);
+    EXPECT_EQ(e3[0].type, ob::EventType::OrderRejected);
+
+    EXPECT_EQ(e1[0].reason, "invalid");
+    EXPECT_EQ(e2[0].reason, "invalid");
+    EXPECT_EQ(e3[0].reason, "invalid");
 }
