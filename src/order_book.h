@@ -1,5 +1,6 @@
 #pragma once
 
+#include "event.h"
 #include "order.h"
 
 #include <cstddef>
@@ -13,66 +14,36 @@
 
 namespace ob
 {
-    // result for add limit requests
-    enum class AddResult
-    {
-        Accepted,
-        DuplicateId,
-        Invalid
-    };
-
-    // result for cancel requests
-    enum class CancelResult
-    {
-        Cancelled,
-        NotFound,
-        Invalid
-    };
-
-    // add outcome includes seq when accepted
-    struct AddOutcome
-    {
-        AddResult result { AddResult::Invalid };
-        std::uint64_t seq { 0 };
-    };
-
-    // cancel outcome includes the original seq when cancelled
-    struct CancelOutcome
-    {
-        CancelResult result { CancelResult::Invalid };
-        std::uint64_t seq { 0 };
-    };
-
-    // order book stores live orders grouped by side and price
+    // order book stores resting orders grouped by side and price
     class OrderBook
     {
     public:
-        // adds a new live limit order if valid and unique
-        AddOutcome add_limit(OrderId id, Side side, PriceTicks price_ticks, Qty qty);
+        // applies an add limit and emits events for accept, trades, and final state
+        std::vector<Event> add_limit(OrderId id, Side side, PriceTicks price_ticks, Qty qty);
 
-        // cancels an existing live order by id
-        CancelOutcome cancel(OrderId id);
+        // applies a cancel and emits cancelled or rejected
+        std::vector<Event> cancel(OrderId id);
 
-        // number of live orders currently stored
+        // number of live resting orders
         std::size_t live_order_count() const;
 
-        // helper used by tests and small demos
+        // quick membership check
         bool has_order(OrderId id) const;
 
-        // best bid price if any bids exist
+        // best bid and ask prices if present
         std::optional<PriceTicks> best_bid_price() const;
-
-        // best ask price if any asks exist
         std::optional<PriceTicks> best_ask_price() const;
 
         // ids at a specific level in fifo order
         std::vector<OrderId> order_ids_at(Side side, PriceTicks price_ticks) const;
 
+        // total qty at a level
+        Qty total_qty_at(Side side, PriceTicks price_ticks) const;
+
     private:
-        // a price level stores orders in fifo time order
         using PriceLevel = std::list<Order>;
 
-        // a locator points to an order inside the book
+        // locator points to an exact stored order
         struct Locator
         {
             Side side { Side::Buy };
@@ -80,16 +51,23 @@ namespace ob
             PriceLevel::iterator it {};
         };
 
-        // monotonic counter for deterministic sequencing
+        // assigns the next seq value
         std::uint64_t next_seq_ { 1 };
 
-        // bids sorted by best price first
+        // bids sorted by highest price first
         std::map<PriceTicks, PriceLevel, std::greater<PriceTicks>> bids_;
 
-        // asks sorted by best price first
+        // asks sorted by lowest price first
         std::map<PriceTicks, PriceLevel, std::less<PriceTicks>> asks_;
 
-        // index from id to exact location for fast cancel
+        // id index for fast cancel and direct access
         std::unordered_map<OrderId, Locator> index_;
+
+        // internal helpers
+        bool crosses(Side taker_side, PriceTicks taker_px, PriceTicks maker_px) const;
+        void erase_level_if_empty(Side side, PriceTicks px);
+
+        // removes a maker order that is fully filled and emits a maker completion event
+        void remove_filled_maker(std::vector<Event>& events, const Order& maker);
     };
 }

@@ -1,0 +1,141 @@
+#include "engine.h"
+
+#include "event_io.h"
+
+#include <gtest/gtest.h>
+
+static std::vector<std::string> to_lines(const std::vector<ob::Event>& es)
+{
+    std::vector<std::string> out;
+    out.reserve(es.size());
+
+    for (const auto& e : es)
+    {
+        out.push_back(ob::event_to_line(e));
+    }
+    return out;
+}
+
+TEST(Matching, SimpleCrossTradeAtMakerPrice)
+{
+    // maker ask then taker buy should trade at ask price
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 10)); // rests
+    const auto ev = eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 150, 4)); // takes 4
+
+    // accepted, trade, maker still resting, taker completed
+    ASSERT_GE(ev.size(), 2u);
+
+    bool saw_trade = false;
+    for (const auto& e : ev)
+    {
+        if (e.type == ob::EventType::Trade)
+        {
+            saw_trade = true;
+            EXPECT_EQ(e.maker_id, 1u);
+            EXPECT_EQ(e.taker_id, 2u);
+            EXPECT_EQ(e.trade_price_ticks, 100);
+            EXPECT_EQ(e.trade_qty, 4);
+        }
+    }
+    EXPECT_TRUE(saw_trade);
+
+    // maker remaining is 6 at ask 100
+    EXPECT_EQ(eng.book().total_qty_at(ob::Side::Sell, 100), 6);
+    EXPECT_EQ(*eng.book().best_ask_price(), 100);
+}
+
+TEST(Matching, FifoWithinLevel)
+{
+    // two makers at same price should fill in arrival order
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(10, ob::Side::Sell, 100, 5));
+    eng.apply(ob::Command::add_limit(11, ob::Side::Sell, 100, 5));
+
+    const auto ev = eng.apply(ob::Command::add_limit(20, ob::Side::Buy, 100, 6));
+
+    // first maker should be fully filled and removed, second should have 4 left
+    EXPECT_FALSE(eng.book().has_order(10));
+    EXPECT_TRUE(eng.book().has_order(11));
+    EXPECT_EQ(eng.book().total_qty_at(ob::Side::Sell, 100), 4);
+
+    // fifo ids order at that level should be [11]
+    const auto ids = eng.book().order_ids_at(ob::Side::Sell, 100);
+    ASSERT_EQ(ids.size(), 1u);
+    EXPECT_EQ(ids[0], 11u);
+}
+
+TEST(Matching, MultiLevelSweep)
+{
+    // taker sweeps multiple ask levels from best ask upward
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 3));
+    eng.apply(ob::Command::add_limit(2, ob::Side::Sell, 105, 4));
+    eng.apply(ob::Command::add_limit(3, ob::Side::Sell, 110, 5));
+
+    eng.apply(ob::Command::add_limit(9, ob::Side::Buy, 110, 10));
+
+    // should clear 100 and 105 and take 3 from 110 leaving 2
+    EXPECT_FALSE(eng.book().has_order(1));
+    EXPECT_FALSE(eng.book().has_order(2));
+    EXPECT_TRUE(eng.book().has_order(3));
+
+    EXPECT_EQ(eng.book().total_qty_at(ob::Side::Sell, 110), 2);
+    EXPECT_EQ(*eng.book().best_ask_price(), 110);
+}
+
+TEST(Matching, RestingWhenNotCrossing)
+{
+    // order that does not cross should rest
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(1, ob::Side::Buy, 100, 5));
+    eng.apply(ob::Command::add_limit(2, ob::Side::Sell, 200, 5));
+
+    EXPECT_EQ(*eng.book().best_bid_price(), 100);
+    EXPECT_EQ(*eng.book().best_ask_price(), 200);
+
+    EXPECT_EQ(eng.book().total_qty_at(ob::Side::Buy, 100), 5);
+    EXPECT_EQ(eng.book().total_qty_at(ob::Side::Sell, 200), 5);
+}
+
+TEST(Cancel, RemovesExactOrder)
+{
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(1, ob::Side::Buy, 100, 5));
+    eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 100, 7));
+    eng.apply(ob::Command::cancel(1));
+
+    // should leave only id 2
+    EXPECT_FALSE(eng.book().has_order(1));
+    EXPECT_TRUE(eng.book().has_order(2));
+
+    const auto ids = eng.book().order_ids_at(ob::Side::Buy, 100);
+    ASSERT_EQ(ids.size(), 1u);
+    EXPECT_EQ(ids[0], 2u);
+
+    EXPECT_EQ(eng.book().total_qty_at(ob::Side::Buy, 100), 7);
+}
+
+TEST(Determinism, SameCommandsSameEvents)
+{
+    // same script applied twice should produce identical event lines
+    std::vector<ob::Command> cmds;
+    cmds.push_back(ob::Command::add_limit(1, ob::Side::Sell, 100, 5));
+    cmds.push_back(ob::Command::add_limit(2, ob::Side::Sell, 100, 5));
+    cmds.push_back(ob::Command::add_limit(3, ob::Side::Buy, 100, 6));
+    cmds.push_back(ob::Command::cancel(2));
+    cmds.push_back(ob::Command::add_limit(4, ob::Side::Buy, 100, 10));
+
+    ob::Engine a;
+    ob::Engine b;
+
+    const auto ea = a.apply_all(cmds);
+    const auto eb = b.apply_all(cmds);
+
+    EXPECT_EQ(to_lines(ea), to_lines(eb));
+}

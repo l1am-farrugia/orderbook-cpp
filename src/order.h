@@ -4,32 +4,30 @@
 
 namespace ob
 {
-    // id type for orders
+    // order id type
     using OrderId = std::uint64_t;
 
-    // order side
+    // side of the book
     enum class Side
     {
         Buy,
         Sell
     };
 
-    // price is represented in integer ticks
+    // integer tick pricing
     using PriceTicks = std::int64_t;
 
-    // quantity is represented as an integer
+    // integer quantity
     using Qty = std::int64_t;
 
-    // order is stored as internal book state
+    // stored resting order state in the book
     struct Order
     {
         OrderId id {};
         Side side { Side::Buy };
         PriceTicks price_ticks { 0 };
-        Qty qty { 0 };
-
-        // seq is assigned by the book to enforce deterministic ordering
-        std::uint64_t seq { 0 };
+        Qty qty { 0 }; // remaining qty
+        std::uint64_t seq { 0 }; // assigned by book
     };
 
     // validates caller supplied values for add limit

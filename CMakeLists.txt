@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(orderbook
     src/order_book.cpp
     src/engine.cpp
+    src/script.cpp
+    src/event_io.cpp
 )
 
 target_include_directories(orderbook PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -25,7 +27,7 @@ enable_testing()
 add_subdirectory(external/googletest)
 
 add_executable(ob_tests
-    tests/test_order_book.cpp
+    tests/test_engine.cpp
 )
 
 target_link_libraries(ob_tests PRIVATE orderbook GTest::gtest_main)

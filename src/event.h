@@ -7,33 +7,51 @@
 
 namespace ob
 {
-    // event type is the category of externally visible output
+    // event category
     enum class EventType
     {
         OrderAccepted,
         OrderRejected,
+
+        Trade,
+
+        OrderResting,
+        OrderCompleted,
+
+        MakerCompleted,
+
         OrderCancelled,
         CancelRejected
     };
 
-    // event is produced by the engine and can be logged or tested
+    // event is emitted by the engine and can be logged and replayed
     struct Event
     {
-        // what happened
         EventType type { EventType::OrderRejected };
 
-        // id the event refers to
+        // primary id for order scoped events
         OrderId id { 0 };
 
-        // seq is assigned by the book on accept and reused for cancel reporting
+        // seq for the primary id when relevant
         std::uint64_t seq { 0 };
 
-        // these fields are meaningful for add related events
+        // context for add events and some cancel events
         Side side { Side::Buy };
         PriceTicks price_ticks { 0 };
         Qty qty { 0 };
 
-        // reason is a small stable token
+        // remaining qty for resting or completion summary events
+        Qty remaining_qty { 0 };
+
+        // trade fields
+        OrderId maker_id { 0 };
+        std::uint64_t maker_seq { 0 };
+        OrderId taker_id { 0 };
+        std::uint64_t taker_seq { 0 };
+        PriceTicks trade_price_ticks { 0 };
+        Qty trade_qty { 0 };
+
+        // small stable token for tests and logs
         std::string reason;
     };
 }

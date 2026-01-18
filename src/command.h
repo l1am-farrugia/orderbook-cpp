@@ -4,24 +4,22 @@
 
 namespace ob
 {
-    // command type describes the kind of request being applied
+    // command category
     enum class CommandType
     {
         AddLimit,
         Cancel
     };
 
-    // command is a simple input record for the engine
-    // it is designed to be easy to build and hard to misuse
+    // command is an input record to the engine
     struct Command
     {
-        // which command variant this is
         CommandType type { CommandType::AddLimit };
 
-        // id is always relevant
+        // common field
         OrderId id { 0 };
 
-        // fields used by add limit
+        // add limit fields
         Side side { Side::Buy };
         PriceTicks price_ticks { 0 };
         Qty qty { 0 };
