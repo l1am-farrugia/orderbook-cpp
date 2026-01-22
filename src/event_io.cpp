@@ -1,6 +1,5 @@
 #include "event_io.h"
 
-#include <cctype>
 #include <sstream>
 #include <unordered_map>
 
@@ -140,8 +139,6 @@ namespace ob
         }
         e.type = *et;
 
-        // remaining keys can be in the fixed order we write
-        // minor format drift is treated as failure
         auto read_u64 = [](const std::string& s, std::uint64_t& out) -> bool
         {
             try
@@ -168,7 +165,6 @@ namespace ob
             }
         };
 
-        // id
         if (!read_kv(iss, key, value) || key != "id")
         {
             return std::nullopt;
@@ -178,7 +174,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // seq
         if (!read_kv(iss, key, value) || key != "seq")
         {
             return std::nullopt;
@@ -188,7 +183,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // side
         if (!read_kv(iss, key, value) || key != "side")
         {
             return std::nullopt;
@@ -200,7 +194,6 @@ namespace ob
         }
         e.side = *sd;
 
-        // px
         if (!read_kv(iss, key, value) || key != "px")
         {
             return std::nullopt;
@@ -210,7 +203,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // qty
         if (!read_kv(iss, key, value) || key != "qty")
         {
             return std::nullopt;
@@ -220,7 +212,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // rem
         if (!read_kv(iss, key, value) || key != "rem")
         {
             return std::nullopt;
@@ -230,7 +221,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // maker
         if (!read_kv(iss, key, value) || key != "maker")
         {
             return std::nullopt;
@@ -240,7 +230,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // maker_seq
         if (!read_kv(iss, key, value) || key != "maker_seq")
         {
             return std::nullopt;
@@ -250,7 +239,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // taker
         if (!read_kv(iss, key, value) || key != "taker")
         {
             return std::nullopt;
@@ -260,7 +248,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // taker_seq
         if (!read_kv(iss, key, value) || key != "taker_seq")
         {
             return std::nullopt;
@@ -270,7 +257,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // tpx
         if (!read_kv(iss, key, value) || key != "tpx")
         {
             return std::nullopt;
@@ -280,7 +266,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // tq
         if (!read_kv(iss, key, value) || key != "tq")
         {
             return std::nullopt;
@@ -290,7 +275,6 @@ namespace ob
             return std::nullopt;
         }
 
-        // reason may contain no spaces in this simple format
         if (!read_kv(iss, key, value) || key != "reason")
         {
             return std::nullopt;

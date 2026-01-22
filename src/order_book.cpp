@@ -17,29 +17,9 @@ namespace ob
         return maker_px >= taker_px;
     }
 
-    void OrderBook::erase_level_if_empty(Side side, PriceTicks px)
-    {
-        // removes an empty level from the chosen side map
-        if (side == Side::Buy)
-        {
-            auto it = bids_.find(px);
-            if (it != bids_.end() && it->second.empty())
-            {
-                bids_.erase(it);
-            }
-            return;
-        }
-
-        auto it = asks_.find(px);
-        if (it != asks_.end() && it->second.empty())
-        {
-            asks_.erase(it);
-        }
-    }
-
     void OrderBook::remove_filled_maker(std::vector<Event>& events, const Order& maker)
     {
-        // maker completion event is useful for replay diffs and tests
+        // maker completion helps replay diffs and tests a lot
         Event e {};
         e.type = EventType::MakerCompleted;
         e.id = maker.id;
@@ -50,6 +30,69 @@ namespace ob
         e.remaining_qty = 0;
         e.reason = "filled";
         events.push_back(e);
+    }
+
+    std::size_t OrderBook::recompute_live_count() const
+    {
+        // recompute live count from containers  not from index
+        std::size_t total { 0 };
+
+        for (const auto& kv : bids_)
+        {
+            total += kv.second.size();
+        }
+
+        for (const auto& kv : asks_)
+        {
+            total += kv.second.size();
+        }
+
+        return total;
+    }
+
+    void OrderBook::assert_invariants() const
+    {
+        // basic invariants for debug builds
+        assert(index_.size() == recompute_live_count());
+
+        for (const auto& kv : bids_)
+        {
+            // no empty levels should remain
+            assert(!kv.second.empty());
+
+            for (const auto& o : kv.second)
+            {
+                assert(o.side == Side::Buy);
+                assert(o.price_ticks == kv.first);
+                assert(o.qty > 0);
+                assert(o.seq != 0);
+            }
+        }
+
+        for (const auto& kv : asks_)
+        {
+            assert(!kv.second.empty());
+
+            for (const auto& o : kv.second)
+            {
+                assert(o.side == Side::Sell);
+                assert(o.price_ticks == kv.first);
+                assert(o.qty > 0);
+                assert(o.seq != 0);
+            }
+        }
+
+        // this deref is ok as long as locators are valid
+        // if a locator ever dangles, we want to crash fast in debug
+        for (const auto& kv : index_)
+        {
+            const OrderId id = kv.first;
+            const Locator& loc = kv.second;
+
+            assert(loc.it->id == id);
+            assert(loc.it->price_ticks == loc.price_ticks);
+            assert(loc.it->side == loc.side);
+        }
     }
 
     std::vector<Event> OrderBook::add_limit(OrderId id, Side side, PriceTicks price_ticks, Qty qty)
@@ -88,7 +131,7 @@ namespace ob
         const std::uint64_t taker_seq = next_seq_;
         ++next_seq_;
 
-        // emit acceptance as the first event
+        // acceptance is always first
         {
             Event e {};
             e.type = EventType::OrderAccepted;
@@ -103,7 +146,6 @@ namespace ob
 
         Qty remaining = qty;
 
-        // pick the maker side container
         if (side == Side::Buy)
         {
             // match against asks while best ask crosses
@@ -113,10 +155,10 @@ namespace ob
                 const PriceTicks maker_px = lvl_it->first;
                 PriceLevel& level = lvl_it->second;
 
+                // walk fifo orders at this level
                 auto it = level.begin();
                 while (remaining > 0 && it != level.end())
                 {
-                    // fill against oldest order at this price
                     const Qty fill = std::min(remaining, it->qty);
 
                     Event trade {};
@@ -150,14 +192,9 @@ namespace ob
                     }
                 }
 
-                // clean empty level
                 if (level.empty())
                 {
                     asks_.erase(lvl_it);
-                }
-                else
-                {
-                    // still has makers, keep it
                 }
             }
         }
@@ -212,9 +249,9 @@ namespace ob
             }
         }
 
-        // if remaining qty exists it becomes a resting order
         if (remaining > 0)
         {
+            // taker rests remaining qty at its own limit price
             Order o {};
             o.id = id;
             o.side = side;
@@ -231,7 +268,7 @@ namespace ob
                 auto iter = std::prev(level.end());
 
                 const bool ok = index_.emplace(id, Locator { side, price_ticks, iter }).second;
-                assert(ok); // this should be true  always
+                assert(ok); // should be true  always
 
                 Event e {};
                 e.type = EventType::OrderResting;
@@ -253,7 +290,7 @@ namespace ob
                 auto iter = std::prev(level.end());
 
                 const bool ok = index_.emplace(id, Locator { side, price_ticks, iter }).second;
-                assert(ok); // insert should not fail
+                assert(ok); // inserton should not fail
 
                 Event e {};
                 e.type = EventType::OrderResting;
@@ -282,9 +319,7 @@ namespace ob
             events.push_back(e);
         }
 
-        // basic invariant checks (debug)
-        assert(live_order_count() == index_.size());
-
+        assert_invariants();
         return events;
     }
 
@@ -354,14 +389,12 @@ namespace ob
         e.seq = snapshot.seq;
         e.side = snapshot.side;
         e.price_ticks = snapshot.price_ticks;
-        e.qty = snapshot.qty; // remaining qty cancelled
+        e.qty = snapshot.qty;
         e.remaining_qty = 0;
         e.reason = "cancelled";
         events.push_back(e);
 
-        // invariants  keep them honest
-        assert(live_order_count() == index_.size());
-
+        assert_invariants();
         return events;
     }
 

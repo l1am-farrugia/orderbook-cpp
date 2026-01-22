@@ -31,6 +31,7 @@ namespace ob
         const OrderBook& book() const;
 
     private:
+        // book state for this engine instance
         OrderBook book_;
 
         // event log stream if enabled

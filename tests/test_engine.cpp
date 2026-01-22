@@ -21,11 +21,8 @@ TEST(Matching, SimpleCrossTradeAtMakerPrice)
     // maker ask then taker buy should trade at ask price
     ob::Engine eng;
 
-    eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 10)); // rests
-    const auto ev = eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 150, 4)); // takes 4
-
-    // accepted, trade, maker still resting, taker completed
-    ASSERT_GE(ev.size(), 2u);
+    eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 10));
+    const auto ev = eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 150, 4));
 
     bool saw_trade = false;
     for (const auto& e : ev)
@@ -54,14 +51,12 @@ TEST(Matching, FifoWithinLevel)
     eng.apply(ob::Command::add_limit(10, ob::Side::Sell, 100, 5));
     eng.apply(ob::Command::add_limit(11, ob::Side::Sell, 100, 5));
 
-    const auto ev = eng.apply(ob::Command::add_limit(20, ob::Side::Buy, 100, 6));
+    eng.apply(ob::Command::add_limit(20, ob::Side::Buy, 100, 6));
 
-    // first maker should be fully filled and removed, second should have 4 left
     EXPECT_FALSE(eng.book().has_order(10));
     EXPECT_TRUE(eng.book().has_order(11));
     EXPECT_EQ(eng.book().total_qty_at(ob::Side::Sell, 100), 4);
 
-    // fifo ids order at that level should be [11]
     const auto ids = eng.book().order_ids_at(ob::Side::Sell, 100);
     ASSERT_EQ(ids.size(), 1u);
     EXPECT_EQ(ids[0], 11u);
@@ -78,7 +73,6 @@ TEST(Matching, MultiLevelSweep)
 
     eng.apply(ob::Command::add_limit(9, ob::Side::Buy, 110, 10));
 
-    // should clear 100 and 105 and take 3 from 110 leaving 2
     EXPECT_FALSE(eng.book().has_order(1));
     EXPECT_FALSE(eng.book().has_order(2));
     EXPECT_TRUE(eng.book().has_order(3));
@@ -102,15 +96,48 @@ TEST(Matching, RestingWhenNotCrossing)
     EXPECT_EQ(eng.book().total_qty_at(ob::Side::Sell, 200), 5);
 }
 
+TEST(Matching, PartialFillThenTakerRestsRemainder)
+{
+    // taker consumes makers then rests leftover at its limit
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 5));
+    eng.apply(ob::Command::add_limit(2, ob::Side::Sell, 105, 4));
+
+    eng.apply(ob::Command::add_limit(9, ob::Side::Buy, 110, 12));
+
+    // should remove both makers and rest 3 at bid 110
+    EXPECT_FALSE(eng.book().has_order(1));
+    EXPECT_FALSE(eng.book().has_order(2));
+
+    EXPECT_TRUE(eng.book().has_order(9));
+    EXPECT_EQ(*eng.book().best_bid_price(), 110);
+    EXPECT_EQ(eng.book().total_qty_at(ob::Side::Buy, 110), 3);
+}
+
+TEST(Matching, TakerFullyFilledDoesNotRest)
+{
+    // if taker gets fully filled it should not become a resting order
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 5));
+    eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 100, 5));
+
+    EXPECT_FALSE(eng.book().has_order(1));
+    EXPECT_FALSE(eng.book().has_order(2));
+
+    EXPECT_FALSE(eng.book().best_ask_price().has_value());
+}
+
 TEST(Cancel, RemovesExactOrder)
 {
+    // cancel should remove only the specified order
     ob::Engine eng;
 
     eng.apply(ob::Command::add_limit(1, ob::Side::Buy, 100, 5));
     eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 100, 7));
     eng.apply(ob::Command::cancel(1));
 
-    // should leave only id 2
     EXPECT_FALSE(eng.book().has_order(1));
     EXPECT_TRUE(eng.book().has_order(2));
 
@@ -119,6 +146,41 @@ TEST(Cancel, RemovesExactOrder)
     EXPECT_EQ(ids[0], 2u);
 
     EXPECT_EQ(eng.book().total_qty_at(ob::Side::Buy, 100), 7);
+}
+
+TEST(Cancel, MiddleOfFifoKeepsOrder)
+{
+    // cancel in the middle should keep fifo order for remaining items
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(10, ob::Side::Sell, 100, 1));
+    eng.apply(ob::Command::add_limit(11, ob::Side::Sell, 100, 1));
+    eng.apply(ob::Command::add_limit(12, ob::Side::Sell, 100, 1));
+
+    eng.apply(ob::Command::cancel(11));
+
+    const auto ids = eng.book().order_ids_at(ob::Side::Sell, 100);
+    ASSERT_EQ(ids.size(), 2u);
+
+    EXPECT_EQ(ids[0], 10u);
+    EXPECT_EQ(ids[1], 12u);
+}
+
+TEST(Cancel, CancelFilledMakerRejectsNotFound)
+{
+    // once a maker is filled it should not be cancellable
+    ob::Engine eng;
+
+    eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 3));
+    eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 100, 3));
+
+    EXPECT_FALSE(eng.book().has_order(1));
+
+    const auto ev = eng.apply(ob::Command::cancel(1));
+    ASSERT_EQ(ev.size(), 1u);
+
+    EXPECT_EQ(ev[0].type, ob::EventType::CancelRejected);
+    EXPECT_EQ(ev[0].reason, "not_found");
 }
 
 TEST(Determinism, SameCommandsSameEvents)

@@ -63,11 +63,12 @@ namespace ob
         // id index for fast cancel and direct access
         std::unordered_map<OrderId, Locator> index_;
 
-        // internal helpers
+        // internal helpers for matching and cleanup
         bool crosses(Side taker_side, PriceTicks taker_px, PriceTicks maker_px) const;
-        void erase_level_if_empty(Side side, PriceTicks px);
-
-        // removes a maker order that is fully filled and emits a maker completion event
         void remove_filled_maker(std::vector<Event>& events, const Order& maker);
+
+        // invariants and sanity checks
+        std::size_t recompute_live_count() const;
+        void assert_invariants() const;
     };
 }
