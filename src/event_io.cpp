@@ -5,6 +5,16 @@
 
 namespace ob
 {
+    static std::string chomp_cr(std::string s)
+    {
+        // strips windows carriage return if present
+        if (!s.empty() && s.back() == '\r')
+        {
+            s.pop_back();
+        }
+        return s;
+    }
+
     const char* event_type_to_string(EventType t)
     {
         switch (t)
@@ -119,7 +129,7 @@ namespace ob
     std::optional<Event> line_to_event(const std::string& line)
     {
         // parse the same key value format we produce
-        std::istringstream iss(line);
+        std::istringstream iss(chomp_cr(line));
 
         Event e {};
 

@@ -3,6 +3,7 @@
 #include "event_io.h"
 #include "script.h"
 
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -14,11 +15,23 @@ static void print_usage()
     std::cout << "  ob_sim --script <path>\n";
     std::cout << "  ob_sim --script <path> --record <event_log>\n";
     std::cout << "  ob_sim --replay <path> --events <event_log>\n";
+    std::cout << "  ob_sim --bench <path> --iters <n>\n";
+}
+
+static std::string chomp_cr(std::string s)
+{
+    // strips windows carriage return if present
+    if (!s.empty() && s.back() == '\r')
+    {
+        s.pop_back();
+    }
+    return s;
 }
 
 static bool read_all_lines(const std::string& path, std::vector<std::string>& out_lines)
 {
-    std::ifstream in(path);
+    // reads file into lines without trailing '\r'
+    std::ifstream in(path, std::ios::binary);
     if (!in)
     {
         return false;
@@ -27,6 +40,7 @@ static bool read_all_lines(const std::string& path, std::vector<std::string>& ou
     std::string line;
     while (std::getline(in, line))
     {
+        line = chomp_cr(line);
         if (!line.empty())
         {
             out_lines.push_back(line);
@@ -41,7 +55,7 @@ static int run_script(const std::string& script_path, const std::string& record_
     if (!cmds_opt.has_value())
     {
         std::cerr << "failed to load script\n";
-        return 1;
+        return 10;
     }
 
     ob::Engine eng;
@@ -51,7 +65,7 @@ static int run_script(const std::string& script_path, const std::string& record_
         if (!eng.start_event_log(record_path))
         {
             std::cerr << "failed to open event log\n";
-            return 1;
+            return 11;
         }
     }
 
@@ -74,14 +88,14 @@ static int replay_script(const std::string& script_path, const std::string& even
     if (!cmds_opt.has_value())
     {
         std::cerr << "failed to load script\n";
-        return 1;
+        return 10;
     }
 
     std::vector<std::string> expected_lines;
     if (!read_all_lines(events_path, expected_lines))
     {
         std::cerr << "failed to read events file\n";
-        return 1;
+        return 12;
     }
 
     ob::Engine eng;
@@ -101,21 +115,79 @@ static int replay_script(const std::string& script_path, const std::string& even
     {
         std::cerr << "mismatch lines count expected=" << expected_lines.size()
                   << " actual=" << actual_lines.size() << "\n";
-        return 2;
+        return 20;
     }
 
     for (std::size_t i = 0; i < actual_lines.size(); ++i)
     {
         if (actual_lines[i] != expected_lines[i])
         {
-            std::cerr << "mismatch at line " << i << "\n";
+            // print local context around first mismatch
+            const std::size_t line_no = i + 1;
+
+            std::cerr << "mismatch at line " << line_no << "\n";
             std::cerr << "expected: " << expected_lines[i] << "\n";
             std::cerr << "actual:   " << actual_lines[i] << "\n";
-            return 3;
+
+            if (i > 0)
+            {
+                std::cerr << "prev exp: " << expected_lines[i - 1] << "\n";
+                std::cerr << "prev act: " << actual_lines[i - 1] << "\n";
+            }
+
+            if (i + 1 < actual_lines.size())
+            {
+                std::cerr << "next exp: " << expected_lines[i + 1] << "\n";
+                std::cerr << "next act: " << actual_lines[i + 1] << "\n";
+            }
+
+            return 21;
         }
     }
 
     std::cout << "replay ok\n";
+    return 0;
+}
+
+static int bench_script(const std::string& script_path, std::uint64_t iters)
+{
+    // benches apply_all using the same command list each run
+    const auto cmds_opt = ob::load_script(script_path);
+    if (!cmds_opt.has_value())
+    {
+        std::cerr << "failed to load script\n";
+        return 10;
+    }
+
+    if (iters == 0)
+    {
+        std::cerr << "iters must be > 0\n";
+        return 30;
+    }
+
+    using clock = std::chrono::high_resolution_clock;
+
+    std::uint64_t total_events { 0 };
+
+    const auto t0 = clock::now();
+    for (std::uint64_t i = 0; i < iters; ++i)
+    {
+        ob::Engine eng;
+
+        const auto events = eng.apply_all(*cmds_opt);
+        total_events += static_cast<std::uint64_t>(events.size());
+    }
+    const auto t1 = clock::now();
+
+    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+
+    const double per_iter_ns = static_cast<double>(ns) / static_cast<double>(iters);
+    const double per_event_ns = (total_events > 0) ? (static_cast<double>(ns) / static_cast<double>(total_events)) : 0.0;
+
+    std::cout << "bench iters=" << iters << " total_ns=" << ns << "\n";
+    std::cout << "per_iter_ns=" << static_cast<std::uint64_t>(per_iter_ns) << "\n";
+    std::cout << "per_event_ns=" << static_cast<std::uint64_t>(per_event_ns) << "\n";
+
     return 0;
 }
 
@@ -127,6 +199,10 @@ int main(int argc, char** argv)
     bool replay = false;
     std::string replay_script_path;
     std::string replay_events_path;
+
+    bool bench = false;
+    std::string bench_script_path;
+    std::uint64_t bench_iters { 0 };
 
     for (int i = 1; i < argc; ++i)
     {
@@ -149,11 +225,30 @@ int main(int argc, char** argv)
         {
             replay_events_path = argv[++i];
         }
+        else if (a == "--bench" && i + 1 < argc)
+        {
+            bench = true;
+            bench_script_path = argv[++i];
+        }
+        else if (a == "--iters" && i + 1 < argc)
+        {
+            bench_iters = static_cast<std::uint64_t>(std::stoull(argv[++i]));
+        }
         else
         {
             print_usage();
             return 1;
         }
+    }
+
+    if (bench)
+    {
+        if (bench_script_path.empty() || bench_iters == 0)
+        {
+            print_usage();
+            return 1;
+        }
+        return bench_script(bench_script_path, bench_iters);
     }
 
     if (replay)

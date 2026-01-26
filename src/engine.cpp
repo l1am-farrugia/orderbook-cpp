@@ -49,7 +49,7 @@ namespace ob
     bool Engine::start_event_log(const std::string& path)
     {
         // opens the log file and enables event writing
-        std::ofstream f(path, std::ios::out | std::ios::trunc);
+        std::ofstream f(path, std::ios::out | std::ios::trunc | std::ios::binary);
         if (!f)
         {
             return false;

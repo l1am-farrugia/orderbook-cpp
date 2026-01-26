@@ -34,7 +34,7 @@ namespace ob
 
     std::size_t OrderBook::recompute_live_count() const
     {
-        // recompute live count from containers  not from index
+        // recompute live count from containers not from index
         std::size_t total { 0 };
 
         for (const auto& kv : bids_)
@@ -52,12 +52,12 @@ namespace ob
 
     void OrderBook::assert_invariants() const
     {
-        // basic invariants for debug builds
+        // core size invariant
         assert(index_.size() == recompute_live_count());
 
+        // validate all bid levels and index entries for them
         for (const auto& kv : bids_)
         {
-            // no empty levels should remain
             assert(!kv.second.empty());
 
             for (const auto& o : kv.second)
@@ -66,9 +66,18 @@ namespace ob
                 assert(o.price_ticks == kv.first);
                 assert(o.qty > 0);
                 assert(o.seq != 0);
+
+                const auto it = index_.find(o.id);
+                assert(it != index_.end());
+
+                // locator must point back to this exact stored node
+                assert(it->second.side == Side::Buy);
+                assert(it->second.price_ticks == kv.first);
+                assert(it->second.it->id == o.id);
             }
         }
 
+        // validate all ask levels and index entries for them
         for (const auto& kv : asks_)
         {
             assert(!kv.second.empty());
@@ -79,19 +88,14 @@ namespace ob
                 assert(o.price_ticks == kv.first);
                 assert(o.qty > 0);
                 assert(o.seq != 0);
+
+                const auto it = index_.find(o.id);
+                assert(it != index_.end());
+
+                assert(it->second.side == Side::Sell);
+                assert(it->second.price_ticks == kv.first);
+                assert(it->second.it->id == o.id);
             }
-        }
-
-        // this deref is ok as long as locators are valid
-        // if a locator ever dangles, we want to crash fast in debug
-        for (const auto& kv : index_)
-        {
-            const OrderId id = kv.first;
-            const Locator& loc = kv.second;
-
-            assert(loc.it->id == id);
-            assert(loc.it->price_ticks == loc.price_ticks);
-            assert(loc.it->side == loc.side);
         }
     }
 
@@ -161,6 +165,7 @@ namespace ob
                 {
                     const Qty fill = std::min(remaining, it->qty);
 
+                    // trade executes at maker price
                     Event trade {};
                     trade.type = EventType::Trade;
                     trade.maker_id = it->id;
@@ -177,11 +182,10 @@ namespace ob
 
                     if (it->qty == 0)
                     {
-                        // fully filled maker gets removed
+                        // fully filled maker gets removed from book and index
                         const Order filled_maker = *it;
 
                         index_.erase(filled_maker.id);
-
                         it = level.erase(it);
 
                         remove_filled_maker(events, filled_maker);
@@ -231,7 +235,6 @@ namespace ob
                         const Order filled_maker = *it;
 
                         index_.erase(filled_maker.id);
-
                         it = level.erase(it);
 
                         remove_filled_maker(events, filled_maker);
@@ -264,11 +267,12 @@ namespace ob
                 auto [lvl_it, created] = bids_.try_emplace(price_ticks, PriceLevel {});
                 PriceLevel& level = lvl_it->second;
 
+                // append to keep fifo for this level
                 level.push_back(o);
                 auto iter = std::prev(level.end());
 
                 const bool ok = index_.emplace(id, Locator { side, price_ticks, iter }).second;
-                assert(ok); // should be true  always
+                assert(ok); // this should always be true
 
                 Event e {};
                 e.type = EventType::OrderResting;
@@ -357,7 +361,7 @@ namespace ob
         if (loc.side == Side::Buy)
         {
             auto lvl_it = bids_.find(loc.price_ticks);
-            assert(lvl_it != bids_.end()); // internal state should exist
+            assert(lvl_it != bids_.end());
 
             PriceLevel& level = lvl_it->second;
             level.erase(loc.it);
@@ -370,7 +374,7 @@ namespace ob
         else
         {
             auto lvl_it = asks_.find(loc.price_ticks);
-            assert(lvl_it != asks_.end()); // internal state should exist
+            assert(lvl_it != asks_.end());
 
             PriceLevel& level = lvl_it->second;
             level.erase(loc.it);
@@ -383,6 +387,7 @@ namespace ob
 
         index_.erase(idx_it);
 
+        // cancellation event reports remaining qty that was removed
         Event e {};
         e.type = EventType::OrderCancelled;
         e.id = snapshot.id;
@@ -410,6 +415,7 @@ namespace ob
 
     std::optional<PriceTicks> OrderBook::best_bid_price() const
     {
+        // best bid is first key in bids map
         if (bids_.empty())
         {
             return std::nullopt;
@@ -419,6 +425,7 @@ namespace ob
 
     std::optional<PriceTicks> OrderBook::best_ask_price() const
     {
+        // best ask is first key in asks map
         if (asks_.empty())
         {
             return std::nullopt;
@@ -428,6 +435,7 @@ namespace ob
 
     std::vector<OrderId> OrderBook::order_ids_at(Side side, PriceTicks price_ticks) const
     {
+        // returns ids in fifo order at the exact level
         std::vector<OrderId> out_ids;
 
         if (side == Side::Buy)

@@ -18,7 +18,7 @@ namespace ob
     class OrderBook
     {
     public:
-        // applies an add limit and emits events for accept, trades, and final state
+        // applies an add limit and emits events for accept trades and final state
         std::vector<Event> add_limit(OrderId id, Side side, PriceTicks price_ticks, Qty qty);
 
         // applies a cancel and emits cancelled or rejected
@@ -41,6 +41,7 @@ namespace ob
         Qty total_qty_at(Side side, PriceTicks price_ticks) const;
 
     private:
+        // a price level holds fifo orders
         using PriceLevel = std::list<Order>;
 
         // locator points to an exact stored order
@@ -63,8 +64,10 @@ namespace ob
         // id index for fast cancel and direct access
         std::unordered_map<OrderId, Locator> index_;
 
-        // internal helpers for matching and cleanup
+        // helper for matching cross condition
         bool crosses(Side taker_side, PriceTicks taker_px, PriceTicks maker_px) const;
+
+        // maker completion event helper
         void remove_filled_maker(std::vector<Event>& events, const Order& maker);
 
         // invariants and sanity checks

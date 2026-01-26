@@ -17,7 +17,6 @@ target_include_directories(orderbook PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 add_executable(ob_sim
     src/main.cpp
 )
-
 target_link_libraries(ob_sim PRIVATE orderbook)
 
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
@@ -29,7 +28,6 @@ add_subdirectory(external/googletest)
 add_executable(ob_tests
     tests/test_engine.cpp
 )
-
 target_link_libraries(ob_tests PRIVATE orderbook GTest::gtest_main)
 
 include(GoogleTest)

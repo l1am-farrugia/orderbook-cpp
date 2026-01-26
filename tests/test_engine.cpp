@@ -9,6 +9,7 @@ static std::vector<std::string> to_lines(const std::vector<ob::Event>& es)
     std::vector<std::string> out;
     out.reserve(es.size());
 
+    // convert events to the stable log format
     for (const auto& e : es)
     {
         out.push_back(ob::event_to_line(e));
@@ -200,4 +201,30 @@ TEST(Determinism, SameCommandsSameEvents)
     const auto eb = b.apply_all(cmds);
 
     EXPECT_EQ(to_lines(ea), to_lines(eb));
+}
+
+TEST(EventIO, RoundTripTradeEvent)
+{
+    // event line encoding should parse back for core fields
+    ob::Event e {};
+    e.type = ob::EventType::Trade;
+    e.maker_id = 7;
+    e.maker_seq = 3;
+    e.taker_id = 9;
+    e.taker_seq = 8;
+    e.trade_price_ticks = 123;
+    e.trade_qty = 4;
+    e.reason = "trade";
+
+    const auto line = ob::event_to_line(e);
+    const auto parsed = ob::line_to_event(line);
+
+    ASSERT_TRUE(parsed.has_value());
+
+    EXPECT_EQ(parsed->type, ob::EventType::Trade);
+    EXPECT_EQ(parsed->maker_id, 7u);
+    EXPECT_EQ(parsed->taker_id, 9u);
+    EXPECT_EQ(parsed->trade_price_ticks, 123);
+    EXPECT_EQ(parsed->trade_qty, 4);
+    EXPECT_EQ(parsed->reason, "trade");
 }

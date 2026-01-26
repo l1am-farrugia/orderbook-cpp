@@ -35,7 +35,7 @@ namespace ob
         // seq for the primary id when relevant
         std::uint64_t seq { 0 };
 
-        // context for add events and some cancel events
+        // context for add events and cancel events
         Side side { Side::Buy };
         PriceTicks price_ticks { 0 };
         Qty qty { 0 };
@@ -51,7 +51,7 @@ namespace ob
         PriceTicks trade_price_ticks { 0 };
         Qty trade_qty { 0 };
 
-        // small stable token for tests and logs
+        // stable token for tests and logs
         std::string reason;
     };
 }

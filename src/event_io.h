@@ -13,7 +13,7 @@ namespace ob
     // parses one line into an event, returns nullopt on failure
     std::optional<Event> line_to_event(const std::string& line);
 
-    // helpers used by both logging and replay
+    // string helpers
     const char* event_type_to_string(EventType t);
     std::optional<EventType> string_to_event_type(const std::string& s);
 
