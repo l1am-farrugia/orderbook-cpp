@@ -1,0 +1,14 @@
+# script_features.txt
+# Demonstrates resting, duplicate id rejection, trades, a sweep, cancel ok, and cancel not_found.
+
+add 1 buy 100 5
+add 1 buy 100 1
+
+add 2 sell 105 2
+add 3 sell 100 3
+
+cancel 2
+cancel 2
+
+add 4 sell 99 10
+add 5 buy 110 20

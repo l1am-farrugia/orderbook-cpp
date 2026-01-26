@@ -38,3 +38,27 @@ you need these installed and working:
 - **cmake** (3 20+)
 - **g++** (mingw w64)
 - **git**
+
+---
+
+## Using as a library
+
+The core engine can be driven directly from c++ by sending commands and consuming events:
+
+```cpp
+#include "engine.h"
+#include "event_io.h"
+#include <iostream>
+
+int main()
+{
+    ob::Engine eng;
+
+    auto e1 = eng.apply(ob::Command::add_limit(1, ob::Side::Sell, 100, 10));
+    auto e2 = eng.apply(ob::Command::add_limit(2, ob::Side::Buy, 150, 4));
+
+    for (const auto& e : e1) { std::cout << ob::event_to_line(e) << "\n"; }
+    for (const auto& e : e2) { std::cout << ob::event_to_line(e) << "\n"; }
+
+    return 0;
+}
